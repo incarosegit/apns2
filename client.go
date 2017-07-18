@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"golang.org/x/net/http2"
+	"github.com/sideshow/apns2/apnskey"
 )
 
 // Apple HTTP/2 Development & Production urls
@@ -39,11 +40,12 @@ var (
 type Client struct {
 	HTTPClient  *http.Client
 	Certificate tls.Certificate
+	APNSToken 	*apnskey.APNSToken
 	Host        string
 }
 
 // NewClient returns a new Client with an underlying http.Client configured with
-// the correct APNs HTTP/2 transport settings. It does not connect to the APNs
+// the correct APNs HTTP/2 transport settings and client certificate. It does not connect to the APNs
 // until the first Notification is sent via the Push method.
 //
 // As per the Apple APNs Provider API, you should keep a handle on this client
@@ -75,6 +77,40 @@ func NewClient(certificate tls.Certificate) *Client {
 		Host:        DefaultHost,
 	}
 }
+
+// NewClientWithAPNSToken returns a new Client with an underlying http.Client configured with
+// the correct APNs HTTP/2 transport settings and JWT Token. It does not connect to the APNs
+// until the first Notification is sent via the Push method.
+//
+// As per the Apple APNs Provider API, you should keep a handle on this client
+// so that you can keep your connections with APNs open across multiple
+// notifications; don’t repeatedly open and close connections. APNs treats rapid
+// connection and disconnection as a denial-of-service attack.
+//
+// If your use case involves multiple long-lived connections, consider using
+// the ClientManager, which manages clients for you.
+func NewClientWithAPNSToken(apnsToken *apnskey.APNSToken) *Client {
+
+	tlsConfig := &tls.Config{
+	}
+
+	transport := &http2.Transport{
+		TLSClientConfig: tlsConfig,
+		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+			return tls.DialWithDialer(&net.Dialer{Timeout: TLSDialTimeout}, network, addr, cfg)
+		},
+	}
+	return &Client{
+		HTTPClient: &http.Client{
+			Transport: transport,
+			Timeout:   HTTPClientTimeout,
+		},
+		APNSToken: apnsToken,
+		Host:        DefaultHost,
+	}
+}
+
+
 
 // Development sets the Client to use the APNs development push endpoint.
 func (c *Client) Development() *Client {
@@ -117,6 +153,13 @@ func (c *Client) PushWithContext(ctx Context, n *Notification) (*Response, error
 	url := fmt.Sprintf("%v/3/device/%v", c.Host, n.DeviceToken)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payload))
 	setHeaders(req, n)
+
+	/// Set Token aheader if available
+	if c.APNSToken != nil {
+		token, _:= c.APNSToken.Generate()
+		value:= "Bearer " + token
+		req.Header.Set("Authorization", value)
+	}
 
 	httpRes, err := c.requestWithContext(ctx, req)
 	if err != nil {
