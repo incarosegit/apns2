@@ -9,8 +9,7 @@ import (
 
 	"github.com/sideshow/apns2"
 	"gopkg.in/alecthomas/kingpin.v2"
-	"io/ioutil"
-	"github.com/sideshow/apns2/apnskey"
+	apnskey "github.com/sideshow/apns2/token"
 )
 
 var (
@@ -26,13 +25,13 @@ func main() {
 	Example: aff0c63d9eaa63ad161bafee732d5bc2c31f66d552054718ff19ce314371e5d0 {"aps": {"alert": "hi"}}`
 	kingpin.Parse()
 
-	bytes, _ := ioutil.ReadFile(*keyPath)
-
-	apns, err := apnskey.NewToken(bytes,"L9KK6GBQT9", "BNS3ZXYS9X")
-
+	key, err := apnskey.ECKeyFromFile(*keyPath)
 	if err != nil {
 		log.Fatalf("Error retrieving private key `%v`: %v", keyPath, err)
 	}
+
+	apns := apnskey.NewToken(key,"L9KK6GBQT9", "BNS3ZXYS9X")
+
 
 	client := apns2.NewClientWithAPNSToken(apns)
 

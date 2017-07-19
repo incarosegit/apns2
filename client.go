@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"golang.org/x/net/http2"
-	"github.com/sideshow/apns2/apnskey"
+	apnskey "github.com/sideshow/apns2/token"
 )
 
 // Apple HTTP/2 Development & Production urls
@@ -44,6 +44,10 @@ type Client struct {
 	Host        string
 }
 
+var DialTLS  = func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+	return tls.DialWithDialer(&net.Dialer{Timeout: TLSDialTimeout}, network, addr, cfg)
+}
+
 // NewClient returns a new Client with an underlying http.Client configured with
 // the correct APNs HTTP/2 transport settings and client certificate. It does not connect to the APNs
 // until the first Notification is sent via the Push method.
@@ -64,9 +68,7 @@ func NewClient(certificate tls.Certificate) *Client {
 	}
 	transport := &http2.Transport{
 		TLSClientConfig: tlsConfig,
-		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
-			return tls.DialWithDialer(&net.Dialer{Timeout: TLSDialTimeout}, network, addr, cfg)
-		},
+		DialTLS: DialTLS,
 	}
 	return &Client{
 		HTTPClient: &http.Client{
@@ -91,14 +93,8 @@ func NewClient(certificate tls.Certificate) *Client {
 // the ClientManager, which manages clients for you.
 func NewClientWithAPNSToken(apnsToken *apnskey.APNSToken) *Client {
 
-	tlsConfig := &tls.Config{
-	}
-
 	transport := &http2.Transport{
-		TLSClientConfig: tlsConfig,
-		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
-			return tls.DialWithDialer(&net.Dialer{Timeout: TLSDialTimeout}, network, addr, cfg)
-		},
+		DialTLS: DialTLS,
 	}
 	return &Client{
 		HTTPClient: &http.Client{
@@ -156,9 +152,11 @@ func (c *Client) PushWithContext(ctx Context, n *Notification) (*Response, error
 
 	/// Set Token aheader if available
 	if c.APNSToken != nil {
-		token, _:= c.APNSToken.Generate()
-		value:= "Bearer " + token
-		req.Header.Set("Authorization", value)
+		if t,err:=c.APNSToken.Generate();t {
+			req.Header.Set("Authorization", "Bearer "+c.APNSToken.Raw())
+		}else{
+			return nil, err
+		}
 	}
 
 	httpRes, err := c.requestWithContext(ctx, req)
